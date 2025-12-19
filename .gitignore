@@ -1,0 +1,10 @@
+# Ignorar arquivos PDF
+*.pdf
+
+# Ignorar arquivos Excel temporários (do Windows)
+~$*.xlsx
+
+# Ignorar pastas de ambiente virtual
+.venv/
+venv/
+__pycache__/
