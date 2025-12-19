@@ -265,6 +265,12 @@ if 'dfs' not in st.session_state:
 # --- ABA 1: FOLHA ---
 with tab1:
     st.header("Upload da Folha de Pagamento (Holerites)")
+    with st.expander("ℹ️ Ver arquivos permitidos para Folha"):
+        st.markdown("""
+        **Arquivos Aceitos:**
+        * `Folha de Pagamento -Normal*.pdf`
+        * `Folha de Adiantamento -Normal*.pdf`
+        """)
     up_folha = st.file_uploader("Selecione os PDFs da Folha", type="pdf", accept_multiple_files=True, key="u_folha")
     if up_folha:
         with st.spinner("Processando Folha complexa..."):
@@ -276,6 +282,11 @@ with tab1:
 # --- ABA 2: ASSISTENCIAL ---
 with tab2:
     st.header("Upload da Relação Assistencial")
+    with st.expander("ℹ️ Ver arquivos permitidos para Assistencial"):
+        st.markdown("""
+        **Arquivos Aceitos:**
+        * `Relação Assistencial *.pdf`
+        """)
     up_assist = st.file_uploader("Selecione PDF Assistencial", type="pdf", accept_multiple_files=True, key="u_assist")
     if up_assist:
         df_assist = processar_assistencial(up_assist)
@@ -286,6 +297,12 @@ with tab2:
 # --- ABA 3: LÍQUIDO ---
 with tab3:
     st.header("Upload Relatório de Líquidos")
+    with st.expander("ℹ️ Ver arquivos permitidos para Líquidos"):
+        st.markdown("""
+        **Arquivos Aceitos:**
+        * `Liquido de Pagamento *.pdf`
+        * `Relatorio Liquido de Adiantamento *.pdf`
+        """)
     up_liq = st.file_uploader("Selecione PDF Líquido", type="pdf", accept_multiple_files=True, key="u_liq")
     if up_liq:
         df_liq = processar_liquidos(up_liq)
@@ -296,6 +313,14 @@ with tab3:
 # --- ABA 4: EXTRAS ---
 with tab4:
     st.header("Upload de Extras (Bonificações, HE separadas)")
+    with st.expander("ℹ️ Ver arquivos permitidos para Extras"):
+        st.markdown("""        
+        **Padrões Identificados:**
+        * `**** - Bonificação Extraordinária.pdf`
+        * `** - Horas Extras 50%.pdf`
+        * `* - D.S.R. Sobre Horas Extras.pdf`
+        * `** - Hora Extras 100%.pdf`
+        """)
     up_extras = st.file_uploader("Selecione PDFs de Extras", type="pdf", accept_multiple_files=True, key="u_extras")
     if up_extras:
         df_extras = processar_extras(up_extras)
