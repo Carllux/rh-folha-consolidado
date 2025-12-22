@@ -426,10 +426,9 @@ with tab5:
         st.divider()
         st.subheader("🛠️ Personalizar Colunas para Exportação")
         
-        # --- LÓGICA DE FILTRO PADRÃO (NOVO) ---
+        # --- LÓGICA DE FILTRO PADRÃO ---
         todas_colunas = df_final.columns.tolist()
         
-        # Lista de colunas que o usuário quer por padrão
         colunas_alvo = [
             "Empresa",
             "Funcionário",
@@ -442,20 +441,24 @@ with tab5:
             "Total Extras"
         ]
         
-        # Filtra: Só define como padrão se a coluna realmente existir no arquivo gerado
-        # (Isso evita erro se, por exemplo, não houver arquivo de Extras carregado)
         padrao_seguro = [col for col in colunas_alvo if col in todas_colunas]
 
         colunas_selecionadas = st.multiselect(
             "Selecione as colunas que deseja no Excel:",
             options=todas_colunas,
-            default=padrao_seguro  # <--- AQUI MUDOU
+            default=padrao_seguro
         )
 
         if not colunas_selecionadas:
             st.error("⚠️ Selecione pelo menos uma coluna.")
         else:
             df_export = df_final[colunas_selecionadas]
+            
+            # --- NOVO: SOMA DO LÍQUIDO A RECEBER ---
+            if "Líquido a Receber" in df_export.columns:
+                total_liq = df_export["Líquido a Receber"].sum()
+                st.metric(label="💰 SOMA TOTAL (Líquido a Receber)", value=f"R$ {total_liq:,.2f}")
+            # ----------------------------------------
             
             st.write("Prévia:")
             st.dataframe(df_export.head())
