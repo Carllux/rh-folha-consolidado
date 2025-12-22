@@ -99,7 +99,7 @@ def processar_extras(uploaded_files):
     dados_extras = []
     # Regex Padrão
     regex_linha = re.compile(r'^\s*(\d+)\s+(.+?)\s+([\d\.,]+)\s+([\d\.,]+)$')
-    # Regex Alternativo
+    # Regex Alternativo (caso o PDF tenha layout levemente diferente, comum em DSR)
     regex_linha_alt = re.compile(r'^\s*(\d+)\s+(.+?)\s+([\d\.,]+)$') 
     
     regex_cnpj_generico = re.compile(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}')
@@ -136,6 +136,7 @@ def processar_extras(uploaded_files):
                     cnpj_encontrado = match_cnpj.group(0) if match_cnpj else "Não Encontrado"
 
                     for linha in texto.split('\n'):
+                        # Tenta o regex padrão primeiro
                         match = regex_linha.search(linha)
                         valor_encontrado = None
                         
@@ -143,6 +144,7 @@ def processar_extras(uploaded_files):
                             cod, nome, ref, val = match.groups()
                             valor_encontrado = val
                         else:
+                            # Tenta regex alternativo (sem coluna de referência)
                             match_alt = regex_linha_alt.search(linha)
                             if match_alt:
                                 cod, nome, val = match_alt.groups()
@@ -176,8 +178,9 @@ def processar_extras(uploaded_files):
             if col not in df_pivot.columns:
                 df_pivot[col] = 0.0
         
-        # --- AJUSTE 1: REMOVIDO CÁLCULO DE TOTAL DE EXTRAS DAQUI ---
-        # O cálculo foi movido para a etapa de consolidação para evitar erros lógicos.
+        # Total
+        cols_numericas = [c for c in df_pivot.columns if c not in ['Empresa CNPJ', 'Código', 'Funcionário']]
+        df_pivot['Total Extras'] = df_pivot[cols_numericas].sum(axis=1)
         
         return df_pivot
         
@@ -376,33 +379,6 @@ with tab5:
                         if nome_final in df_final.columns:
                             df_final[nome_final] = df_final[nome_final].fillna(0.0)
 
-                # --- AJUSTE 2: CÁLCULO CENTRALIZADO DO TOTAL EXTRAS ---
-                # Define as colunas exatas que compõem o total, protegendo a lógica de negócio
-                colunas_extras_base = [
-                    "D.S.R. Sobre Horas Extras",
-                    "Horas Extras 50%",
-                    "Adicional Noturno Horas 20%",
-                    "Bonificação Extraordinária",
-                    "DSR Adicional Noturno",
-                    "Hora Extras 100%"
-                ]
-
-                # Identifica os nomes reais no dataframe (com ou sem sufixo _Extra)
-                colunas_extras_finais = []
-                for c in colunas_extras_base:
-                    if c in df_final.columns:
-                        colunas_extras_finais.append(c)
-                    elif f"{c}_Extra" in df_final.columns:
-                        colunas_extras_finais.append(f"{c}_Extra")
-
-                # Garante que sejam numéricas e soma
-                if colunas_extras_finais:
-                    for c in colunas_extras_finais:
-                        df_final[c] = df_final[c].fillna(0.0).astype(float)
-                    df_final["Total Extras"] = df_final[colunas_extras_finais].sum(axis=1)
-                else:
-                    df_final["Total Extras"] = 0.0
-
                 if 'Empresa CNPJ Norm' in df_final.columns:
                     df_final.drop(columns=['Empresa CNPJ Norm'], inplace=True)
 
@@ -412,48 +388,36 @@ with tab5:
     if 'df_consolidado_cache' in st.session_state:
         df_final = st.session_state['df_consolidado_cache']
         st.divider()
+        todas_colunas = df_final.columns.tolist()
         
-        # --- AJUSTE 3: COLUNAS FIXAS (SEM EDIÇÃO PELO USUÁRIO) ---
-        colunas_relatorio = [
-            "Empresa", 
-            "Funcionário", 
-            "Função", 
-            "Admissão", 
-            "D.S.R. Sobre Horas Extras", 
-            "Horas Extras 50%", 
-            "Adicional Noturno Horas 20%", 
-            "Bonificação Extraordinária", 
-            "DSR Adicional Noturno", 
-            "Hora Extras 100%",
-            "Total Extras", 
-            "Líquido a Receber"
+        padrao = [
+            "Empresa", "Funcionário", "Função", "D.S.R. Sobre Horas Extras", "Horas Extras 50%", 
+            "F.G.T.S.", "Líquido a Receber", "Admissão", "Total Extras",
+            "Adicional Noturno Horas 20%", "Bonificação Extraordinária", "DSR Adicional Noturno", "Hora Extras 100%"
         ]
+        # Ajusta para buscar colunas mesmo com sufixo _Extra
+        padrao_ajustado = []
+        for p in padrao:
+            if p in todas_colunas: padrao_ajustado.append(p)
+            elif f"{p}_Extra" in todas_colunas: padrao_ajustado.append(f"{p}_Extra")
 
-        # Filtra apenas as colunas que existem no DF final (tratando sufixos se necessário)
-        colunas_exibir = []
-        for col in colunas_relatorio:
-            if col in df_final.columns:
-                colunas_exibir.append(col)
-            elif f"{col}_Extra" in df_final.columns:
-                colunas_exibir.append(f"{col}_Extra")
-        
-        # Exibe apenas as colunas aprovadas no relatório
-        df_export = df_final[colunas_exibir]
+        colunas_sel = st.multiselect("Colunas:", options=todas_colunas, default=padrao_ajustado)
 
-        if "Líquido a Receber" in df_export.columns:
-            st.metric("Total Líquido", f"R$ {df_export['Líquido a Receber'].sum():,.2f}")
-        
-        st.dataframe(df_export.head())
-        
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_export.to_excel(writer, sheet_name='Consolidado', index=False)
-            for n, d in st.session_state.dfs.items(): d.to_excel(writer, sheet_name=f"Orig_{n}", index=False)
-        
-        st.download_button("Baixar Excel", buffer.getvalue(), "Consolidado.xlsx")
-        if st.button("Limpar"):
-            del st.session_state['df_consolidado_cache']
-            st.rerun()
+        if colunas_sel:
+            df_export = df_final[colunas_sel]
+            if "Líquido a Receber" in df_export.columns:
+                st.metric("Total Líquido", f"R$ {df_export['Líquido a Receber'].sum():,.2f}")
+            
+            st.dataframe(df_export.head())
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df_export.to_excel(writer, sheet_name='Consolidado', index=False)
+                for n, d in st.session_state.dfs.items(): d.to_excel(writer, sheet_name=f"Orig_{n}", index=False)
+            
+            st.download_button("Baixar Excel", buffer.getvalue(), "Consolidado.xlsx")
+            if st.button("Limpar"):
+                del st.session_state['df_consolidado_cache']
+                st.rerun()
 
 # --- ABA 6: DASHBOARD & ANÁLISE ---
 with tab6:
@@ -475,16 +439,9 @@ with tab6:
         
         # Garante que as colunas existam e sejam números (float)
         for c in cols_numericas_esperadas:
-            # Verifica se coluna existe ou se existe com sufixo _Extra
-            col_name = c
-            if c not in df_dash.columns and f"{c}_Extra" in df_dash.columns:
-                col_name = f"{c}_Extra"
-
-            if col_name not in df_dash.columns:
-                df_dash[c] = 0.0 # Cria se não existir de jeito nenhum
+            if c not in df_dash.columns:
+                df_dash[c] = 0.0
             else:
-                # Se o nome era com sufixo, renomeia temporariamente para o padrão ou usa direto
-                if col_name != c: df_dash[c] = df_dash[col_name]
                 df_dash[c] = df_dash[c].fillna(0).astype(float)
 
         # --- 2. KPIs (LINHA SUPERIOR) ---
