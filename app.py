@@ -434,7 +434,6 @@ with tab5:
             "Empresa",
             "Funcionário",
             "Função",
-            "Arquivo",
             "D.S.R. Sobre Horas Extras",
             "Horas Extras 50%",
             "F.G.T.S.",
