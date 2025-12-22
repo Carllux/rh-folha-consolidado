@@ -365,19 +365,16 @@ with tab5:
             with st.spinner("Consolidando bases de dados com chave composta (Código + CNPJ)..."):
                 df_final = dfs['Folha'].copy()
                 
-                # [ALTERAÇÃO CRÍTICA] Normalização de Chaves
-                # Garante que Código e CNPJ estejam no mesmo formato em todas as tabelas
+                # Normalização de Chaves
                 df_final['Código'] = df_final['Código'].astype(str).str.strip()
-                df_final['Empresa CNPJ Norm'] = df_final['Empresa CNPJ'].apply(limpar_cnpj) # Cria chave limpa
+                df_final['Empresa CNPJ Norm'] = df_final['Empresa CNPJ'].apply(limpar_cnpj) 
 
                 # 1. Merge com Assistencial
                 if 'Assistencial' in dfs and not dfs['Assistencial'].empty:
                     df_assist = dfs['Assistencial'].copy()
                     df_assist['Código'] = df_assist['Código'].astype(str).str.strip()
-                    # Normaliza CNPJ do assistencial para bater com a folha
                     df_assist['Empresa CNPJ Norm'] = df_assist['Empresa CNPJ'].apply(limpar_cnpj)
                     
-                    # Merge usando Código E CNPJ
                     df_final = pd.merge(
                         df_final, 
                         df_assist[['Código', 'Empresa CNPJ Norm', 'Salário Base', 'Valor Assistencial']], 
@@ -392,7 +389,6 @@ with tab5:
                     df_liq_in['Código'] = df_liq_in['Código'].astype(str).str.strip()
                     df_liq_in['Empresa CNPJ Norm'] = df_liq_in['Empresa CNPJ'].apply(limpar_cnpj)
                     
-                    # Merge usando Código E CNPJ
                     df_final = pd.merge(
                         df_final, 
                         df_liq_in[['Código', 'Empresa CNPJ Norm', 'Valor Líquido']], 
@@ -407,7 +403,6 @@ with tab5:
                     df_ext['Código'] = df_ext['Código'].astype(str).str.strip()
                     df_ext['Empresa CNPJ Norm'] = df_ext['Empresa CNPJ'].apply(limpar_cnpj)
                     
-                    # Merge usando Código E CNPJ
                     df_final = pd.merge(
                         df_final, 
                         df_ext[['Código', 'Empresa CNPJ Norm', 'Valor (R$)']], 
@@ -417,12 +412,12 @@ with tab5:
                     df_final.rename(columns={'Valor (R$)': 'Total Extras'}, inplace=True)
                     df_final['Total Extras'] = df_final['Total Extras'].fillna(0.0)
 
-                # Limpeza final (remove coluna de normalização auxiliar)
+                # Limpeza final
                 if 'Empresa CNPJ Norm' in df_final.columns:
                     df_final.drop(columns=['Empresa CNPJ Norm'], inplace=True)
 
                 st.session_state['df_consolidado_cache'] = df_final
-                st.success("🎉 Consolidação realizada com sucesso! (Relacionamento por Código + CNPJ)")
+                st.success("🎉 Consolidação realizada com sucesso!")
 
     # --- EXIBIÇÃO PERSISTENTE ---
     if 'df_consolidado_cache' in st.session_state:
@@ -431,12 +426,31 @@ with tab5:
         st.divider()
         st.subheader("🛠️ Personalizar Colunas para Exportação")
         
+        # --- LÓGICA DE FILTRO PADRÃO (NOVO) ---
         todas_colunas = df_final.columns.tolist()
         
+        # Lista de colunas que o usuário quer por padrão
+        colunas_alvo = [
+            "Empresa",
+            "Funcionário",
+            "Função",
+            "Arquivo",
+            "D.S.R. Sobre Horas Extras",
+            "Horas Extras 50%",
+            "F.G.T.S.",
+            "Líquido a Receber",
+            "Admissão",
+            "Total Extras"
+        ]
+        
+        # Filtra: Só define como padrão se a coluna realmente existir no arquivo gerado
+        # (Isso evita erro se, por exemplo, não houver arquivo de Extras carregado)
+        padrao_seguro = [col for col in colunas_alvo if col in todas_colunas]
+
         colunas_selecionadas = st.multiselect(
             "Selecione as colunas que deseja no Excel:",
             options=todas_colunas,
-            default=todas_colunas
+            default=padrao_seguro  # <--- AQUI MUDOU
         )
 
         if not colunas_selecionadas:
