@@ -29,9 +29,7 @@ def limpar_cnpj(cnpj_str):
 # --- 1. FUNÇÃO: EXTRAIR LÍQUIDO ---
 def processar_liquidos(uploaded_files):
     dados_extraidos = []
-    # Regex do Notebook
     padrao_liquido = re.compile(r'^\s*(\d+)\s+(.+?)\s+(\d{3}\.\d{3}\.\d{3}-\d{2})\s+(\d{2}/\d{2}/\d{4})\s+([\d\.,]+)')
-    # [ALTERAÇÃO] Regex genérico para capturar CNPJ no cabeçalho da página
     regex_cnpj_generico = re.compile(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}')
 
     for file in uploaded_files:
@@ -41,7 +39,6 @@ def processar_liquidos(uploaded_files):
                     texto = pagina.extract_text()
                     if not texto: continue
                     
-                    # [ALTERAÇÃO] Busca CNPJ na página atual
                     match_cnpj = regex_cnpj_generico.search(texto)
                     cnpj_encontrado = match_cnpj.group(0) if match_cnpj else "Não Encontrado"
 
@@ -50,7 +47,7 @@ def processar_liquidos(uploaded_files):
                         if match:
                             codigo, nome, cpf, data, valor = match.groups()
                             dados_extraidos.append({
-                                "Empresa CNPJ": cnpj_encontrado, # [ALTERAÇÃO] Campo Adicionado
+                                "Empresa CNPJ": cnpj_encontrado,
                                 "Código": codigo,
                                 "Funcionário": nome.strip(),
                                 "CPF": cpf,
@@ -66,10 +63,8 @@ def processar_liquidos(uploaded_files):
 # --- 2. FUNÇÃO: EXTRAIR ASSISTENCIAL ---
 def processar_assistencial(uploaded_files):
     dados_assistencial = []
-    # Regex do Notebook
     regex_linha_nome = re.compile(r'Código:\s*(\d+)\s+Nome\s*:\s*(.+?)\s+Função\s*:\s*(.*)')
     regex_linha_valores = re.compile(r'Admissão\s*:\s*(\d{2}/\d{2}/\d{4})\s*Salário\s*:\s*([,.\d]+)\s*Valor\s*:\s*([,.\d]+)')
-    # [ALTERAÇÃO] Regex genérico para CNPJ
     regex_cnpj_generico = re.compile(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}')
 
     for file in uploaded_files:
@@ -79,7 +74,6 @@ def processar_assistencial(uploaded_files):
                     texto = pagina.extract_text()
                     if not texto: continue
                     
-                    # [ALTERAÇÃO] Busca CNPJ na página
                     match_cnpj = regex_cnpj_generico.search(texto)
                     cnpj_encontrado = match_cnpj.group(0) if match_cnpj else "Não Encontrado"
 
@@ -87,7 +81,6 @@ def processar_assistencial(uploaded_files):
                     for i, linha in enumerate(linhas):
                         match_nome = regex_linha_nome.search(linha)
                         if match_nome:
-                            # Tenta pegar valores na linha seguinte
                             if i + 1 < len(linhas):
                                 linha_baixo = linhas[i+1]
                                 match_valores = regex_linha_valores.search(linha_baixo)
@@ -95,7 +88,7 @@ def processar_assistencial(uploaded_files):
                                     cod, nome, funcao = match_nome.groups()
                                     admissao, salario, valor_desc = match_valores.groups()
                                     dados_assistencial.append({
-                                        "Empresa CNPJ": cnpj_encontrado, # [ALTERAÇÃO] Campo Adicionado
+                                        "Empresa CNPJ": cnpj_encontrado,
                                         "Código": cod,
                                         "Funcionário": nome.strip(),
                                         "Função": funcao.strip(),
@@ -112,9 +105,7 @@ def processar_assistencial(uploaded_files):
 # --- 3. FUNÇÃO: EXTRAIR EXTRAS (AGRUPADO) ---
 def processar_extras(uploaded_files):
     dados_extras = []
-    # Regex do Notebook
     regex_linha = re.compile(r'^\s*(\d+)\s+(.+?)\s+([\d\.,]+)\s+([\d\.,]+)$')
-    # [ALTERAÇÃO] Regex genérico para CNPJ
     regex_cnpj_generico = re.compile(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}')
 
     for file in uploaded_files:
@@ -124,7 +115,6 @@ def processar_extras(uploaded_files):
                     texto = pagina.extract_text()
                     if not texto: continue
 
-                    # [ALTERAÇÃO] Busca CNPJ na página
                     match_cnpj = regex_cnpj_generico.search(texto)
                     cnpj_encontrado = match_cnpj.group(0) if match_cnpj else "Não Encontrado"
 
@@ -133,7 +123,7 @@ def processar_extras(uploaded_files):
                         if match_dados:
                             cod, nome, referencia, valor = match_dados.groups()
                             dados_extras.append({
-                                "Empresa CNPJ": cnpj_encontrado, # [ALTERAÇÃO] Campo Adicionado
+                                "Empresa CNPJ": cnpj_encontrado,
                                 "Código": str(int(cod)), 
                                 "Funcionário": nome.strip(),
                                 "Valor (R$)": limpar_valor(valor)
@@ -143,19 +133,18 @@ def processar_extras(uploaded_files):
 
     if dados_extras:
         df = pd.DataFrame(dados_extras)
-        # [ALTERAÇÃO] Agrupa por Código, Funcionário E CNPJ
+        # Agrupa extras duplicados (mesmo código e empresa) somando valores
         df_agrupado = df.groupby(['Empresa CNPJ', 'Código', 'Funcionário'], as_index=False)['Valor (R$)'].sum()
         return df_agrupado
     return pd.DataFrame()
 
-# --- 4. FUNÇÃO: EXTRAIR FOLHA COMPLETA ---
+# --- 4. FUNÇÃO: EXTRAIR FOLHA COMPLETA (COM TRATAMENTO DE DUPLICIDADE) ---
 def processar_folha(uploaded_files):
     dados_folha = []
     
-    # --- REGEX COMPILADOS ---
+    # REGEX
     regex_inicio = re.compile(r'Cód:\s*(\d+).*?Nome:\s*(.*?)\s+Função:(.*?)(?:Dep|$)')
     regex_contrato = re.compile(r'Admissão:\s*(\d{2}/\d{2}/\d{4}).*?Salário:\s*([,.\d]+)')
-    
     regex_razao_social = re.compile(r'(?:Apelido:.*?|\s*)Razão Social:\s*(.*?)(?:\s+CNPJ/CEI:|\s+Pág:|\n|$)', re.IGNORECASE)
     regex_cnpj_cei = re.compile(r'CNPJ/CEI:([\d\./\-]+)', re.IGNORECASE)
     
@@ -180,7 +169,6 @@ def processar_folha(uploaded_files):
                 empresa_nome = "Não Encontrado"
                 empresa_cnpj = "Não Encontrado"
                 
-                # Tenta pegar dados da empresa na primeira página
                 if len(pdf.pages) > 0:
                     first_text = pdf.pages[0].extract_text()
                     match_rz = regex_razao_social.search(first_text)
@@ -192,7 +180,6 @@ def processar_folha(uploaded_files):
                     texto = pagina.extract_text()
                     if not texto: continue
                     
-                    # Se a folha tiver empresas diferentes por página, tenta atualizar aqui
                     match_cnpj_pag = regex_cnpj_cei.search(texto)
                     if match_cnpj_pag:
                         empresa_cnpj = match_cnpj_pag.group(1).strip()
@@ -264,10 +251,37 @@ def processar_folha(uploaded_files):
 
     if dados_folha:
         df = pd.DataFrame(dados_folha)
-        cols_valores = [c for c in df.columns if c not in ["Empresa", "Empresa CNPJ", "Código", "Funcionário", "Função", "Arquivo", "Admissão"]]
+        
+        # 1. Limpeza de Valores (String -> Float)
+        colunas_cadastrais = ["Empresa", "Empresa CNPJ", "Código", "Funcionário", "Função", "Arquivo", "Admissão"]
+        cols_valores = [c for c in df.columns if c not in colunas_cadastrais]
+        
         for col in cols_valores:
             df[col] = df[col].apply(limpar_valor)
-        return df
+            
+        # 2. TRATAMENTO DE DUPLICATAS ROBUSTO
+        # Passo A: Remover duplicatas EXATAS (mesmo arquivo processado 2x ou upload repetido)
+        # Ignoramos a coluna arquivo para ver se o conteúdo é idêntico
+        df_limpo = df.drop_duplicates(subset=[c for c in df.columns if c != 'Arquivo'])
+
+        # Passo B: Remover linhas onde todos os valores financeiros são 0
+        df_limpo = df_limpo.loc[~(df_limpo[cols_valores] == 0).all(axis=1)]
+
+        # Passo C: Agrupar por Funcionário + Empresa (SOMA)
+        # Se houver Adiantamento + Folha Mensal, isso vai consolidar em uma linha só somando os valores
+        # As chaves de agrupamento são os dados cadastrais
+        chaves_agrupamento = ['Empresa', 'Empresa CNPJ', 'Código', 'Funcionário', 'Função', 'Admissão']
+        
+        # Agrupa e soma os valores numéricos
+        df_agrupado = df_limpo.groupby(chaves_agrupamento, as_index=False)[cols_valores].sum()
+        
+        # Recupera o nome do arquivo (pega o primeiro encontrado para referência)
+        df_arquivos = df_limpo[['Empresa CNPJ', 'Código', 'Arquivo']].drop_duplicates(subset=['Empresa CNPJ', 'Código'], keep='first')
+        
+        # Junta de volta para ter a coluna Arquivo
+        df_final = pd.merge(df_agrupado, df_arquivos, on=['Empresa CNPJ', 'Código'], how='left')
+        
+        return df_final
     
     return pd.DataFrame()
 
@@ -300,17 +314,12 @@ with tab1:
         with st.spinner("Processando Folha complexa..."):
             df_folha = processar_folha(up_folha)
             st.session_state.dfs['Folha'] = df_folha
-            st.success(f"{len(df_folha)} registros extraídos.")
+            st.success(f"{len(df_folha)} registros únicos consolidados.")
             st.dataframe(df_folha.head())
 
 # --- ABA 2: ASSISTENCIAL ---
 with tab2:
     st.header("Upload da Relação Assistencial")
-    with st.expander("ℹ️ Ver arquivos permitidos para Assistencial"):
-        st.markdown("""
-        **Arquivos Aceitos:**
-        * `Relação Assistencial *.pdf`
-        """)
     up_assist = st.file_uploader("Selecione PDF Assistencial", type="pdf", accept_multiple_files=True, key="u_assist")
     if up_assist:
         df_assist = processar_assistencial(up_assist)
@@ -321,12 +330,6 @@ with tab2:
 # --- ABA 3: LÍQUIDO ---
 with tab3:
     st.header("Upload Relatório de Líquidos")
-    with st.expander("ℹ️ Ver arquivos permitidos para Líquidos"):
-        st.markdown("""
-        **Arquivos Aceitos:**
-        * `Liquido de Pagamento *.pdf`
-        * `Relatorio Liquido de Adiantamento *.pdf`
-        """)
     up_liq = st.file_uploader("Selecione PDF Líquido", type="pdf", accept_multiple_files=True, key="u_liq")
     if up_liq:
         df_liq = processar_liquidos(up_liq)
@@ -337,14 +340,6 @@ with tab3:
 # --- ABA 4: EXTRAS ---
 with tab4:
     st.header("Upload de Extras (Bonificações, HE separadas)")
-    with st.expander("ℹ️ Ver arquivos permitidos para Extras"):
-        st.markdown("""         
-        **Padrões Identificados:**
-        * `**** - Bonificação Extraordinária.pdf`
-        * `** - Horas Extras 50%.pdf`
-        * `* - D.S.R. Sobre Horas Extras.pdf`
-        * `** - Hora Extras 100%.pdf`
-        """)
     up_extras = st.file_uploader("Selecione PDFs de Extras", type="pdf", accept_multiple_files=True, key="u_extras")
     if up_extras:
         df_extras = processar_extras(up_extras)
@@ -365,15 +360,22 @@ with tab5:
             with st.spinner("Consolidando bases de dados com chave composta (Código + CNPJ)..."):
                 df_final = dfs['Folha'].copy()
                 
-                # Normalização de Chaves
+                # [PASSO CRÍTICO] GARANTIA DE UNICIDADE DA CHAVE NA BASE
+                # Antes de fazer o merge, garantimos que não há Código duplicado para o mesmo CNPJ na tabela base
+                # Como já fizemos o groupby na extração, isso é uma dupla checagem de segurança
                 df_final['Código'] = df_final['Código'].astype(str).str.strip()
-                df_final['Empresa CNPJ Norm'] = df_final['Empresa CNPJ'].apply(limpar_cnpj) 
+                df_final['Empresa CNPJ Norm'] = df_final['Empresa CNPJ'].apply(limpar_cnpj)
+                
+                # Se ainda houver duplicidade (muito raro após o processar_folha), removemos mantendo o primeiro
+                df_final = df_final.drop_duplicates(subset=['Código', 'Empresa CNPJ Norm'], keep='first')
 
                 # 1. Merge com Assistencial
                 if 'Assistencial' in dfs and not dfs['Assistencial'].empty:
                     df_assist = dfs['Assistencial'].copy()
                     df_assist['Código'] = df_assist['Código'].astype(str).str.strip()
                     df_assist['Empresa CNPJ Norm'] = df_assist['Empresa CNPJ'].apply(limpar_cnpj)
+                    # Remove duplicatas do assistencial se houver erro na leitura
+                    df_assist = df_assist.drop_duplicates(subset=['Código', 'Empresa CNPJ Norm'])
                     
                     df_final = pd.merge(
                         df_final, 
@@ -388,6 +390,8 @@ with tab5:
                     df_liq_in = dfs['Liquido'].copy()
                     df_liq_in['Código'] = df_liq_in['Código'].astype(str).str.strip()
                     df_liq_in['Empresa CNPJ Norm'] = df_liq_in['Empresa CNPJ'].apply(limpar_cnpj)
+                    # Agrupa líquidos se houver múltiplos pagamentos no mesmo mês (adiantamento + mensal)
+                    df_liq_in = df_liq_in.groupby(['Código', 'Empresa CNPJ Norm'], as_index=False)['Valor Líquido'].sum()
                     
                     df_final = pd.merge(
                         df_final, 
@@ -402,6 +406,8 @@ with tab5:
                     df_ext = dfs['Extras'].copy()
                     df_ext['Código'] = df_ext['Código'].astype(str).str.strip()
                     df_ext['Empresa CNPJ Norm'] = df_ext['Empresa CNPJ'].apply(limpar_cnpj)
+                    # Já agrupado na função de extração, mas garantindo
+                    df_ext = df_ext.groupby(['Código', 'Empresa CNPJ Norm'], as_index=False)['Valor (R$)'].sum()
                     
                     df_final = pd.merge(
                         df_final, 
@@ -417,7 +423,7 @@ with tab5:
                     df_final.drop(columns=['Empresa CNPJ Norm'], inplace=True)
 
                 st.session_state['df_consolidado_cache'] = df_final
-                st.success("🎉 Consolidação realizada com sucesso!")
+                st.success("🎉 Consolidação realizada com sucesso! (Duplicidades removidas)")
 
     # --- EXIBIÇÃO PERSISTENTE ---
     if 'df_consolidado_cache' in st.session_state:
@@ -426,7 +432,6 @@ with tab5:
         st.divider()
         st.subheader("🛠️ Personalizar Colunas para Exportação")
         
-        # --- LÓGICA DE FILTRO PADRÃO ---
         todas_colunas = df_final.columns.tolist()
         
         colunas_alvo = [
@@ -454,11 +459,10 @@ with tab5:
         else:
             df_export = df_final[colunas_selecionadas]
             
-            # --- NOVO: SOMA DO LÍQUIDO A RECEBER ---
+            # --- SOMA DO LÍQUIDO A RECEBER ---
             if "Líquido a Receber" in df_export.columns:
                 total_liq = df_export["Líquido a Receber"].sum()
                 st.metric(label="💰 SOMA TOTAL (Líquido a Receber)", value=f"R$ {total_liq:,.2f}")
-            # ----------------------------------------
             
             st.write("Prévia:")
             st.dataframe(df_export.head())
@@ -545,28 +549,3 @@ with tab6:
                 st.plotly_chart(fig_pie, use_container_width=True)
             else:
                 st.warning("Coluna 'Função' não encontrada.")
-
-        col_g3, col_g4 = st.columns(2)
-
-        with col_g3:
-            st.subheader("📊 Distribuição de Salários (Histograma)")
-            fig_hist = px.histogram(
-                df_dash, 
-                x="Líquido a Receber", 
-                nbins=20, 
-                color_discrete_sequence=['#3b82f6']
-            )
-            fig_hist.update_layout(bargap=0.1)
-            st.plotly_chart(fig_hist, use_container_width=True)
-
-        with col_g4:
-            st.subheader("🔍 Relação: Salário Base vs. Extras")
-            fig_scat = px.scatter(
-                df_dash, 
-                x="Salário Base Contratual", 
-                y="Total Extras",
-                hover_data=['Funcionário', 'Função'],
-                size="Total Proventos", 
-                color="Função"
-            )
-            st.plotly_chart(fig_scat, use_container_width=True)
