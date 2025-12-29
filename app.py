@@ -332,92 +332,139 @@ with tab4:
         st.success(f"{len(df_extras)} registros.")
         st.dataframe(df_extras, use_container_width=True)
 
+
 with tab5:
-    st.header("Consolidação")
-    if st.button("Gerar Relatório"):
+    st.header("Consolidação e Validação de Dados")
+    
+    if st.button("Processar e Unificar Dados"):
         dfs = st.session_state.dfs
-        if 'Folha' not in dfs or dfs['Folha'].empty:
-            st.warning("⚠️ Processe a Folha primeiro.")
-        else:
-            with st.spinner("Consolidando..."):
-                df_final = dfs['Folha'].copy()
-                df_final['Código'] = df_final['Código'].astype(str).str.strip()
-                df_final['Empresa CNPJ Norm'] = df_final['Empresa CNPJ'].apply(limpar_cnpj)
-                df_final = df_final.drop_duplicates(subset=['Código', 'Empresa CNPJ Norm'], keep='first')
-
-                if 'Assistencial' in dfs and not dfs['Assistencial'].empty:
-                    df_a = dfs['Assistencial'].copy()
-                    df_a['Código'] = df_a['Código'].astype(str).str.strip()
-                    df_a['Empresa CNPJ Norm'] = df_a['Empresa CNPJ'].apply(limpar_cnpj)
-                    df_a = df_a.drop_duplicates(subset=['Código', 'Empresa CNPJ Norm'])
-                    df_final = pd.merge(df_final, df_a[['Código', 'Empresa CNPJ Norm', 'Salário Base', 'Valor Assistencial']], on=['Código', 'Empresa CNPJ Norm'], how='left', suffixes=('', '_assist'))
-
-                if 'Liquido' in dfs and not dfs['Liquido'].empty:
-                    df_l = dfs['Liquido'].copy()
-                    df_l['Código'] = df_l['Código'].astype(str).str.strip()
-                    df_l['Empresa CNPJ Norm'] = df_l['Empresa CNPJ'].apply(limpar_cnpj)
-                    df_l = df_l.groupby(['Código', 'Empresa CNPJ Norm'], as_index=False)['Valor Líquido'].sum()
-                    df_final = pd.merge(df_final, df_l[['Código', 'Empresa CNPJ Norm', 'Valor Líquido']], on=['Código', 'Empresa CNPJ Norm'], how='left')
-                    df_final.rename(columns={'Valor Líquido': 'Valor Líquido (Relatório)'}, inplace=True)
-
-                if 'Extras' in dfs and not dfs['Extras'].empty:
-                    df_e = dfs['Extras'].copy()
-                    df_e['Código'] = df_e['Código'].astype(str).str.strip()
-                    df_e['Empresa CNPJ Norm'] = df_e['Empresa CNPJ'].apply(limpar_cnpj)
-                    
-                    # Colunas de dados (exclui chaves)
-                    cols_dados = [c for c in df_e.columns if c not in ['Empresa CNPJ', 'Funcionário', 'Empresa CNPJ Norm', 'Código']]
-                    cols_merge = ['Código', 'Empresa CNPJ Norm'] + cols_dados
-                    
-                    # Merge com Sufixo para evitar Colisão de Nomes
-                    df_final = pd.merge(df_final, df_e[cols_merge], on=['Código', 'Empresa CNPJ Norm'], how='left', suffixes=('', '_Extra'))
-                    
-                    # Preencher NAs nas novas colunas
-                    for col in cols_dados:
-                        # Se a coluna colidiu, ela ganhou sufixo _Extra no df_final
-                        nome_final = f"{col}_Extra" if f"{col}_Extra" in df_final.columns else col
-                        if nome_final in df_final.columns:
-                            df_final[nome_final] = df_final[nome_final].fillna(0.0)
-
-                if 'Empresa CNPJ Norm' in df_final.columns:
-                    df_final.drop(columns=['Empresa CNPJ Norm'], inplace=True)
-
-                st.session_state['df_consolidado_cache'] = df_final
-                st.success("Sucesso!")
-
-    if 'df_consolidado_cache' in st.session_state:
-        df_final = st.session_state['df_consolidado_cache']
-        st.divider()
-        todas_colunas = df_final.columns.tolist()
         
-        padrao = [
-            "Empresa", "Funcionário", "Função", "D.S.R. Sobre Horas Extras", "Horas Extras 50%", 
-            "F.G.T.S.", "Líquido a Receber", "Admissão", "Total Extras",
-            "Adicional Noturno Horas 20%", "Bonificação Extraordinária", "DSR Adicional Noturno", "Hora Extras 100%"
-        ]
-        # Ajusta para buscar colunas mesmo com sufixo _Extra
-        padrao_ajustado = []
-        for p in padrao:
-            if p in todas_colunas: padrao_ajustado.append(p)
-            elif f"{p}_Extra" in todas_colunas: padrao_ajustado.append(f"{p}_Extra")
-
-        colunas_sel = st.multiselect("Colunas:", options=todas_colunas, default=padrao_ajustado)
-
-        if colunas_sel:
-            df_export = df_final[colunas_sel]
-            if "Líquido a Receber" in df_export.columns:
-                st.metric("Total Líquido", f"R$ {df_export['Líquido a Receber'].sum():,.2f}")
+        # --- 1. PREPARAÇÃO DOS DADOS (NORMALIZAÇÃO DE CHAVES) ---
+        lista_para_consolidar = []
+        
+        # Função interna para garantir chaves idênticas em todas as tabelas
+        def padronizar_dataframe(df_orig, nome_origem):
+            df = df_orig.copy()
+            # Garante que 'Código' seja um número inteiro (remove zeros à esquerda e espaços)
+            # 'errors=coerce' transforma textos não numéricos em NaN, depois preenchemos com 0
+            df['KEY_COD'] = pd.to_numeric(df['Código'], errors='coerce').fillna(0).astype(int)
             
-            st.dataframe(df_export.head())
+            # Garante CNPJ apenas números
+            df['KEY_CNPJ'] = df['Empresa CNPJ'].apply(lambda x: re.sub(r'\D', '', str(x)))
+            
+            # Adiciona sufixo nas colunas de VALOR para saber a origem (exceto Folha que é a base)
+            if nome_origem != 'Folha':
+                cols_renomear = {c: f"{c}_{nome_origem}" for c in df.columns 
+                                 if c not in ['Empresa', 'Funcionário', 'KEY_COD', 'KEY_CNPJ', 'Código', 'Empresa CNPJ']}
+                df = df.rename(columns=cols_renomear)
+            
+            # Retorna apenas as colunas essenciais + chaves
+            # Removemos colunas repetidas de texto para não poluir (mantemos só na Folha ou primeira ocorrencia)
+            cols_drop = ['Empresa', 'Funcionário', 'Função', 'Arquivo', 'Código', 'Empresa CNPJ']
+            if nome_origem != 'Folha':
+                df = df.drop(columns=[c for c in cols_drop if c in df.columns], errors='ignore')
+                
+            return df
+
+        # Processa FOLHA
+        if 'Folha' in dfs and not dfs['Folha'].empty:
+            df_base = dfs['Folha'].copy()
+            df_base['KEY_COD'] = pd.to_numeric(df_base['Código'], errors='coerce').fillna(0).astype(int)
+            df_base['KEY_CNPJ'] = df_base['Empresa CNPJ'].apply(lambda x: re.sub(r'\D', '', str(x)))
+            lista_para_consolidar.append(df_base)
+        
+        # Processa OUTRAS TABELAS
+        for nome_aba in ['Assistencial', 'Liquido', 'Extras']:
+            if nome_aba in dfs and not dfs[nome_aba].empty:
+                df_padrao = padronizar_dataframe(dfs[nome_aba], nome_aba)
+                lista_para_consolidar.append(df_padrao)
+
+        # --- 2. MOTOR DE CONSOLIDAÇÃO (OUTER JOIN) ---
+        if not lista_para_consolidar:
+            st.warning("Nenhum dado carregado para consolidar.")
+        else:
+            df_final = lista_para_consolidar[0]
+            
+            for df_temp in lista_para_consolidar[1:]:
+                # Outer Join: Mantém dados mesmo se não existir na tabela base
+                df_final = pd.merge(df_final, df_temp, on=['KEY_COD', 'KEY_CNPJ'], how='outer')
+
+            # --- 3. LIMPEZA FINAL E SOMA INTELIGENTE ---
+            
+            # Preenche vazios numéricos com 0.00
+            cols_num = df_final.select_dtypes(include=['number']).columns
+            df_final[cols_num] = df_final[cols_num].fillna(0.0)
+            
+            # Preenche textos vazios (ex: Funcionário que só existia no Extra e veio NaN no merge)
+            cols_text = df_final.select_dtypes(include=['object']).columns
+            df_final[cols_text] = df_final[cols_text].fillna("-")
+
+            # --- 4. AGRUPAMENTO FINAL (CORREÇÃO DE DUPLICIDADE) ---
+            # Se houver linhas duplicadas por causa do merge, somamos aqui.
+            # Agrupamos pelas chaves normalizadas
+            
+            # Identificamos colunas de identificação (que não devem ser somadas)
+            cols_id = ['KEY_COD', 'KEY_CNPJ']
+            # Tentamos recuperar nome/empresa se existirem
+            if 'Funcionário' in df_final.columns: cols_id.append('Funcionário')
+            if 'Empresa' in df_final.columns: cols_id.append('Empresa')
+
+            # Define regra: Números -> SOMA. Textos -> MANTÉM O PRIMEIRO.
+            agg_rules = {}
+            for col in df_final.columns:
+                if col not in cols_id:
+                    if col in cols_num:
+                        agg_rules[col] = 'sum'
+                    else:
+                        agg_rules[col] = 'first'
+            
+            # O Grande GroupBy que corrige os valores
+            df_consolidado = df_final.groupby(cols_id, as_index=False).agg(agg_rules)
+            
+            # Remove as chaves auxiliares para exportação limpa
+            df_consolidado['Código'] = df_consolidado['KEY_COD']
+            df_consolidado.drop(columns=['KEY_COD', 'KEY_CNPJ'], inplace=True)
+
+            st.session_state['df_consolidado_cache'] = df_consolidado
+            st.success("Dados consolidados e somados com sucesso!")
+
+    # --- EXIBIÇÃO ---
+    if 'df_consolidado_cache' in st.session_state:
+        df_show = st.session_state['df_consolidado_cache']
+        st.divider()
+        
+        # Filtros Automáticos
+        cols_numericas = df_show.select_dtypes(include=['number']).columns.tolist()
+        cols_texto = df_show.select_dtypes(exclude=['number']).columns.tolist()
+        
+        # Seleção de colunas inteligente
+        st.subheader("Visualização")
+        cols_usuario = st.multiselect(
+            "Selecione as colunas:", 
+            options=df_show.columns,
+            default=cols_texto[:3] + cols_numericas[:5] # Padrão: 3 primeiros textos, 5 primeiros números
+        )
+        
+        if cols_usuario:
+            df_view = df_show[cols_usuario]
+            
+            # KPI Rápido
+            col_liq = next((c for c in df_view.columns if 'Líquido' in c), None)
+            if col_liq:
+                total = df_view[col_liq].sum()
+                st.metric("Total da Coluna Líquido Selecionada", f"R$ {total:,.2f}")
+            
+            st.dataframe(df_view.head(50))
+            
+            # Exportação
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_export.to_excel(writer, sheet_name='Consolidado', index=False)
-                for n, d in st.session_state.dfs.items(): d.to_excel(writer, sheet_name=f"Orig_{n}", index=False)
-            
-            st.download_button("Baixar Excel", buffer.getvalue(), "Consolidado.xlsx")
-            if st.button("Limpar"):
-                del st.session_state['df_consolidado_cache']
-                st.rerun()
+                df_view.to_excel(writer, sheet_name='Consolidado', index=False)
+                # Abas de origem para conferência
+                for nome, df in st.session_state.dfs.items():
+                    df.to_excel(writer, sheet_name=f"Orig_{nome}", index=False)
+                    
+            st.download_button("📥 Baixar Planilha Consolidada", buffer, "Relatorio_Final_RH.xlsx")
 
 # --- ABA 6: DASHBOARD & ANÁLISE ---
 with tab6:
